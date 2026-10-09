@@ -5,23 +5,50 @@ Feed Forward Neural Network Helper
 '''
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, BatchNormalization
-from sklearn.preprocessing import MinMaxScaler
-from utils.model_utils import ModelUtil
+from .model_utils import ModelUtil
 import keras
 
 
 class FFNN(ModelUtil):
     '''
-    This class implements 5 different feedforward neural networks and inherits from the ModelUtil class.
+    Implements 5 different feedforward neural network architectures and
+    trains them with time-ordered cross-validation. Inherits the data utility
+    and model evaluation helpers from ModelUtil.
     '''
 
     def __init__(self, verbose=0):
+        super().__init__(verbose=verbose)
 
-        self.verbose = verbose
-
-    def create_model_1(self, lr=0.001, inp_shape=[]):
+    def _build_model(self, model_num, lr, inp_shape):
         '''
-        architecture 1 - deep with the most params - mainly to test for raw data
+        Builds one of the 5 architectures by model number.
+
+        Raises:
+            ValueError: if model_num is not between 1 and 5.
+        '''
+        builders = {
+            1: self.create_model_1,
+            2: self.create_model_2,
+            3: self.create_model_3,
+            4: self.create_model_4,
+            5: self.create_model_5,
+        }
+        if model_num not in builders:
+            raise ValueError(
+                "model_num must be one of 1-5, got {!r}".format(model_num))
+        return builders[model_num](lr, inp_shape)
+
+    def create_model_1(self, lr=0.001, inp_shape=None):
+        '''
+        Builds feedforward architecture 1: the deepest and largest model,
+        intended mainly for raw (full-dimensionality) data.
+
+        Args:
+            lr: learning rate for the Adam optimizer.
+            inp_shape: number of input features.
+
+        Returns:
+            A compiled keras Sequential model.
         '''
         model = Sequential()
         model.add(BatchNormalization())
@@ -47,9 +74,17 @@ class FFNN(ModelUtil):
             metrics=['accuracy'])
         return model
 
-    def create_model_2(self, lr=0.001, inp_shape=[]):
+    def create_model_2(self, lr=0.001, inp_shape=None):
         '''
-        architecture 2 - not as many params as 1
+        Builds feedforward architecture 2: a mid-sized model with fewer
+        parameters than architecture 1.
+
+        Args:
+            lr: learning rate for the Adam optimizer.
+            inp_shape: number of input features.
+
+        Returns:
+            A compiled keras Sequential model.
         '''
 
         model = Sequential()
@@ -73,9 +108,17 @@ class FFNN(ModelUtil):
             metrics=['accuracy'])
         return model
 
-    def create_model_3(self, lr=0.001, inp_shape=[]):
+    def create_model_3(self, lr=0.001, inp_shape=None):
         '''
-            architecture 3 - less neurons to avoid overfitting for PCA features
+        Builds feedforward architecture 3: fewer neurons to avoid overfitting
+        on low-dimensional PCA features.
+
+        Args:
+            lr: learning rate for the Adam optimizer.
+            inp_shape: number of input features.
+
+        Returns:
+            A compiled keras Sequential model.
         '''
         model = Sequential()
         model.add(BatchNormalization())
@@ -95,9 +138,9 @@ class FFNN(ModelUtil):
             metrics=['accuracy'])
         return model
 
-    def create_model_4(self, lr=0.0001, inp_shape=[]):
+    def create_model_4(self, lr=0.0001, inp_shape=None):
         '''
-            architecture 3 - less neurons to avoid overfitting for PCA features
+            architecture 4 - smaller still, tuned for low-dimensional PCA features
         '''
         model = Sequential()
         model.add(BatchNormalization())
@@ -117,9 +160,9 @@ class FFNN(ModelUtil):
             metrics=['accuracy'])
         return model
 
-    def create_model_5(self, lr=0.0001, inp_shape=[]):
+    def create_model_5(self, lr=0.0001, inp_shape=None):
         '''
-            architecture 3 - less neurons to avoid overfitting for PCA features
+            architecture 5 - linear activations, the smallest model
         '''
         model = Sequential()
         model.add(BatchNormalization())
@@ -150,30 +193,25 @@ class FFNN(ModelUtil):
             epochs=5,
             batch_size=32):
         '''
-        Training a FFNN -
+        Trains a feedforward neural network with time-ordered cross-validation
+        (see gen_data). A fresh model is built for every fold.
+
         Args:
-            X_train : training matrix
-            y_train : training labels
-            model_num : which model arch to use
-            lr : learning rate
-            num_folds : number of cross validation folds
-            epochs : number of epochs
-            batch_size : batch size
+            X_train: training matrix.
+            y_train: training labels.
+            model_num: which architecture to use (1-5).
+            lr: learning rate.
+            num_folds: number of cross-validation folds. With num_folds=1,
+                trains once on the full data.
+            epochs: number of training epochs per fold.
+            batch_size: batch size.
+
         Returns:
-            model : trained model
+            The trained keras model (from the last fold).
         '''
 
         inp_shape = X_train.shape[1]
-        if model_num == 1:
-            model = self.create_model_1(lr, inp_shape)
-        elif model_num == 2:
-            model = self.create_model_2(lr, inp_shape)
-        elif model_num == 3:
-            model = self.create_model_3(lr, inp_shape)
-        elif model_num == 4:
-            model = self.create_model_4(lr, inp_shape)
-        elif model_num == 5:
-            model = self.create_model_5(lr, inp_shape)
+        model = self._build_model(model_num, lr, inp_shape)
 
         if num_folds == 1:
             model.fit(
@@ -189,17 +227,9 @@ class FFNN(ModelUtil):
             try:
                 training_data, training_label, validation_data, validation_label = next(
                     GEN)
-                if model_num == 1:
-                    model = self.create_model_1(lr, inp_shape)
-                elif model_num == 2:
-                    model = self.create_model_2(lr, inp_shape)
-                elif model_num == 3:
-                    model = self.create_model_3(lr, inp_shape)
-                elif model_num == 4:
-                    model = self.create_model_4(lr, inp_shape)
-                elif model_num == 4:
-                    model = self.create_model_5(lr, inp_shape)
-
+                # Rebuild a fresh model for each fold so no weights leak
+                # from the previous fold.
+                model = self._build_model(model_num, lr, inp_shape)
                 model.fit(
                     training_data,
                     training_label,

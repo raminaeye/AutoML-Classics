@@ -9,7 +9,7 @@ import warnings
 import tensorflow
 import logging
 import pandas as pd
-from matplotlib.pylab import plt
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import find_peaks
 import plotly.express as px
@@ -19,6 +19,7 @@ from sklearn import preprocessing
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from sklearn.decomposition import NMF
+import umap
 import pickle
 import os
 import librosa
@@ -37,9 +38,21 @@ class DataUtil:
         self.num_sensors = num_sensors
 
     def set_data(self, data):
+        '''
+        Sets the sensor data this object operates on.
+
+        Args:
+            data: a 1-D numpy array of sensor readings.
+        '''
         self.sensor_i = data
 
     def set_num_sensors(self, num_sensors):
+        '''
+        Sets how many sensors (columns) are in the time series data.
+
+        Args:
+            num_sensors: number of sensors.
+        '''
         self.num_sensors = num_sensors
 
     def get_mean(self):
@@ -65,8 +78,15 @@ class DataUtil:
 
     def capture_sensor_stat(self, times_series_data):
         '''
-        Takes in a time series and extract selected features from the signal
-        Returns a dataframe
+        Extracts per-sensor summary statistics from a time series.
+
+        Args:
+            times_series_data: matrix of shape (num_samples, num_sensors).
+
+        Returns:
+            A pandas DataFrame with one row per sensor and columns
+            sensor, mean, std, ztnz (zero to non-zero ratio), max_val,
+            min_val, nan_count.
         '''
         sensor_stats = []
         for i in range(0, self.num_sensors):
@@ -94,7 +114,12 @@ class DataUtil:
 
     def plot_eda(self, sampled_data):
         '''
-        plots EDA of a sampled dataset
+        Plots an exploratory overview of sampled sensor data: a raw sample,
+        a normalized sample, a 64-component PCA sample, an engineered-feature
+        sample, aggregate statistics across sensors, and detected peaks.
+
+        Args:
+            sampled_data: matrix of shape (num_samples, num_sensors).
         '''
         avg_of_all_samples = np.mean(sampled_data, axis=0)
         std_of_all_samples = np.std(sampled_data, axis=0)
@@ -118,7 +143,7 @@ class DataUtil:
         sample_pca = pca_data[4, :]
         plt.figure(figsize=(15, 5), dpi=100)
         plt.plot(sample_pca)
-        plt.title("Sample 128 PCA-ed sensor data")
+        plt.title("Sample 64 PCA-ed sensor data")
 
         eng_data = self.feature_engr(sampled_norm_data)
         sample_eng = eng_data[4, :]
@@ -147,8 +172,15 @@ class DataUtil:
 
     def stat_window(self, data, jump=128):
         '''
-        window over sensors i.e., average them out to identify if there are any patterns of interest
-        75% sensor overlap
+        Slides a window over the sensors, averaging them to surface patterns
+        of interest. Uses 75% overlap between consecutive windows.
+
+        Args:
+            data: 1-D array of sensor readings.
+            jump: window width in sensors.
+
+        Returns:
+            Two lists: window means and window standard deviations.
         '''
         b = [0, jump]
         mean_chunk_i = []
@@ -165,13 +197,27 @@ class DataUtil:
 
     def make_sparse(self, data):
         '''
-        converts data to sklearn sparse
+        Converts a dense matrix to a scipy CSR sparse matrix.
+
+        Args:
+            data: dense matrix.
+
+        Returns:
+            scipy.sparse.csr_matrix of the data.
         '''
         return scipy.sparse.csr_matrix(data)
 
     def feature_engr(self, ys):
         '''
-        Feature engineering
+        Extracts audio-style features (zero-crossing rate, RMS, spectral
+        flatness, each at two frame sizes) from each row of time series data
+        and applies a tanh nonlinearity.
+
+        Args:
+            ys: matrix of shape (num_samples, num_sensors) or a single 1-D row.
+
+        Returns:
+            Feature matrix of shape (num_samples, num_features).
         '''
         feats = []
         if len(np.shape(ys)) < 1:
@@ -194,7 +240,14 @@ class DataUtil:
 
     def project_tsne(self, data, dim=3):
         '''
-        project data to 3 dim using T-SNE
+        Projects data to a lower dimension using t-SNE.
+
+        Args:
+            data: matrix of shape (num_samples, num_features).
+            dim: target dimensionality.
+
+        Returns:
+            Projected matrix of shape (num_samples, dim).
         '''
         data_transformation = TSNE(
             n_components=dim,
@@ -206,7 +259,14 @@ class DataUtil:
 
     def project_umap(self, data, dim=3):
         '''
-        project data to 3 dim using UMAP
+        Projects data to a lower dimension using UMAP.
+
+        Args:
+            data: matrix of shape (num_samples, num_features).
+            dim: target dimensionality.
+
+        Returns:
+            Projected matrix of shape (num_samples, dim).
         '''
         mapper = umap.UMAP(n_components=dim, init='random').fit(data)
         data_transformation = mapper.transform(data)
@@ -214,14 +274,44 @@ class DataUtil:
 
     def project_pca(self, data, dim=3):
         '''
-        project data to 3 dim using PCA
+        Fits a PCA model on the data.
+
+        Args:
+            data: matrix of shape (num_samples, num_features).
+            dim: number of principal components.
+
+        Returns:
+            A fitted sklearn PCA model. Use its transform() method on new data.
         '''
         pca = PCA(n_components=dim)
         return pca.fit(data)
     
-    def project_nmf(self,data,dim=128):
+    def fit_nmf(self, data, dim=128):
+        '''
+        Fits a Non-Negative Matrix Factorization model on the data.
+
+        Args:
+            data: matrix of shape (num_samples, num_features). Must be non-negative.
+            dim: number of NMF components.
+
+        Returns:
+            A fitted sklearn NMF model. Use its transform() method on new data.
+        '''
         model = NMF(n_components=dim, init='random', random_state=0)
-        return model.fit_transform(data)
+        return model.fit(data)
+
+    def project_nmf(self, model, data):
+        '''
+        Projects data using a fitted NMF model.
+
+        Args:
+            model: a fitted sklearn NMF model (see fit_nmf).
+            data: matrix to project.
+
+        Returns:
+            The projected data of shape (num_samples, dim).
+        '''
+        return model.transform(data)
 
     def scatter_plot(self, data_transformation, labels):
         '''
@@ -275,8 +365,14 @@ class DataUtil:
 
     def extract_stft(self, data, n_fft=32):
         '''
-        extract short time fourier transform from a time series
-        returns magnitude and phase
+        Computes the short-time Fourier transform of a time series.
+
+        Args:
+            data: 1-D time series.
+            n_fft: FFT window size.
+
+        Returns:
+            Tuple (magnitude, phase) of the STFT.
         '''
         S = librosa.stft(data, n_fft=n_fft, hop_length=n_fft // 2)
         magnitude, phase = librosa.magphase(S)
@@ -284,8 +380,14 @@ class DataUtil:
 
     def extract_psd(self, magnitude, phase):
         '''
-        extract and plot PSD from STFT
-        return PSD
+        Extracts and plots the power spectral density from an STFT.
+
+        Args:
+            magnitude: STFT magnitude matrix from extract_stft.
+            phase: STFT phase matrix from extract_stft.
+
+        Returns:
+            The average magnitude across frames (PSD estimate).
         '''
         phase_angle = np.angle(phase)
         librosa.display.specshow(magnitude, cmap='gray_r')
@@ -294,15 +396,27 @@ class DataUtil:
 
     def load_csv(self, filename):
         '''
-        load a csv file and fills missing values using padding from previous values
+        Loads a CSV file and forward-fills missing values from previous rows.
+
+        Args:
+            filename: path to the CSV file.
+
+        Returns:
+            The loaded pandas DataFrame with no NaNs.
         '''
         df = pd.read_csv(filename)
-        df_filling_missing_values = df.fillna(method="pad")
+        df_filling_missing_values = df.ffill()
         return df_filling_missing_values
 
     def normalizer(self, data):
         '''
-        takes in data and returns a sklearn normalizer to be used to normalize data
+        Fits a standard scaler (zero mean, unit variance) on the data.
+
+        Args:
+            data: matrix used to fit the scaler.
+
+        Returns:
+            A fitted sklearn StandardScaler.
         '''
         norm_scaler = preprocessing.StandardScaler().fit(data)
 
@@ -310,9 +424,18 @@ class DataUtil:
 
     def load_norm_data(self, filename):
         '''
-        loads a csv file, assign 80% of data to training and 20% to testing
-        normalizes training set and uses that normalization on testing set
-        returns normalizes training and test data along with their corresponding labels
+        Loads a CSV of sensor data, splits it by the 'block' column into
+        training (blocks 0-3) and testing (block 4), and normalizes the test
+        set with the scaler fitted on the training set.
+
+        The CSV is expected to have feature columns whose names contain 'x'
+        and a label column named 'y'.
+
+        Args:
+            filename: path to the CSV file.
+
+        Returns:
+            Tuple (x_train_norm, y_train, x_test_norm, y_test).
         '''
         df_filling_missing_values = self.load_csv(filename)
         x_cols = [col for col in df_filling_missing_values.columns if 'x' in col]
@@ -335,9 +458,17 @@ class DataUtil:
     
     def load_data(self, filename):
         '''
-        loads a csv file, assign 80% of data to training and 20% to testing
-        normalizes training set and uses that normalization on testing set
-        returns normalizes training and test data along with their corresponding labels
+        Loads a CSV of sensor data and splits it by the 'block' column into
+        training (blocks 0-3) and testing (block 4), without normalization.
+
+        The CSV is expected to have feature columns whose names contain 'x'
+        and a label column named 'y'.
+
+        Args:
+            filename: path to the CSV file.
+
+        Returns:
+            Tuple (x_train, y_train, x_test, y_test).
         '''
         df_filling_missing_values = self.load_csv(filename)
         x_cols = [col for col in df_filling_missing_values.columns if 'x' in col]
@@ -356,10 +487,18 @@ class DataUtil:
 
     def gen_data(self, X, y, num_folds=5):
         '''
-        Since data is a time-ordered list of samples, data is not randomized in time order. Validation set is extracted to maintain the time-order
-        generates training and validation data data for cross-validation
-        Returns a generator functions which returns training and validation data along with their labels
+        Generates time-ordered cross-validation folds. Because the samples are
+        a time-ordered list, the data is not shuffled; each fold uses one
+        contiguous chunk as validation and the rest as training.
 
+        Args:
+            X: data matrix of shape (num_samples, num_features).
+            y: label vector of shape (num_samples,).
+            num_folds: number of folds. len(y) must be divisible by num_folds.
+
+        Yields:
+            Tuples (training_data, training_label, validation_data,
+            validation_label) per fold.
         '''
         assert len(
             y) % num_folds == 0, "number of samples must be divisible by num_folds"
@@ -378,9 +517,23 @@ class DataUtil:
 
     def input_data(self, X_train, feature_name, X_test=[], num_feat=128):
         '''
-        X_train is training data - this method does normalize data, make sure to send in normalized data if 'pca' is passed
-        Takes in training data (and testing data if available) and returns them as is if feature_name is set to 'raw'
-        and #num_feat 'pca' features if set to 'pca'
+        Applies a feature transform to the training data (and test data, if given).
+
+        feature_name 'raw': returns the data unchanged.
+        feature_name 'pca': returns num_feat principal components. Pass in
+            normalized data when using PCA.
+        feature_name 'eng': returns engineered audio-style features.
+        feature_name 'nmf': returns num_feat NMF components fitted on the
+            training data and applied to both sets.
+
+        Args:
+            X_train: training matrix.
+            feature_name: one of 'raw', 'pca', 'eng', 'nmf'.
+            X_test: test matrix, or an empty list if unavailable.
+            num_feat: number of features for 'pca' and 'nmf'.
+
+        Returns:
+            Tuple (Xf_train, Xf_test) of transformed matrices.
         '''
         if feature_name == 'pca':
             pca = self.project_pca(X_train, dim=num_feat)
@@ -397,8 +550,9 @@ class DataUtil:
             feat_test = self.feature_engr(X_test)
             return feat_train, feat_test
         elif feature_name == 'nmf':
-            feat_train = self.project_nmf(X_train)
-            feat_test = self.feature_engr(X_test)
+            nmf = self.fit_nmf(X_train, dim=num_feat)
+            feat_train = self.project_nmf(nmf, X_train)
+            feat_test = self.project_nmf(nmf, X_test)
             return feat_train, feat_test
             
         else:
@@ -406,8 +560,13 @@ class DataUtil:
 
     def viz_frames(self, X, y, num_frames=32):
         '''
-        helper function for visualizing data as a series of frames
-        takes in data and labels along with how many frames
+        Visualizes the data as an animated series of frames: the mean sensor
+        reading per frame alongside its label.
+
+        Args:
+            X: data matrix of shape (num_samples, num_features).
+            y: label vector.
+            num_frames: number of samples shown per frame, 50% overlap.
         '''
         b = [0, num_frames]
         while b[1] <= len(X):
@@ -429,8 +588,12 @@ class DataUtil:
 
     def viz_raw(self, X, y):
         '''
-        helper function for visualizing data as samples
-        takes in data and labels
+        Plots each sample's windowed mean/std over sensors plus its spectral
+        peaks, colored by label.
+
+        Args:
+            X: data matrix of shape (num_samples, num_features).
+            y: label vector.
         '''
         for idx, x in enumerate(X):
             label = y[idx]
@@ -456,8 +619,17 @@ class DataUtil:
 
     def viz_projected_data(self, filename, projection='pca', mask=[True]*1024):
         '''
-        helper function for visualizing low-dim projected data in 3D
-        takes in a csv filename
+        Loads a CSV, normalizes it, projects it to 3-D, and shows an
+        interactive scatter plot colored by label.
+
+        Args:
+            filename: path to the CSV file with feature columns and a 'y'
+                label column.
+            projection: one of 'pca', 'umap', 'tsne', 'nmf'.
+            mask: boolean mask selecting which sensor columns to use.
+
+        Returns:
+            The projected data matrix of shape (num_samples, 3).
         '''
         df_filling_missing_values = self.load_csv(filename)
         x_cols = [col for col in df_filling_missing_values.columns if 'x' in col]
@@ -487,12 +659,13 @@ class DataUtil:
             self.scatter_plot(data_transformation, labels)
         elif projection == 'umap':
             data_transformation = self.project_umap(data_norm, dim=3)
-            self.scatter_plot(projected, labels)
+            self.scatter_plot(data_transformation, labels)
         elif projection == 'tsne':
             data_transformation = self.project_tsne(data_norm, dim=3)
             self.scatter_plot(data_transformation, labels)
         elif projection == 'nmf':
-            data_transformation = self.project_nmf(data, dim=3)
+            nmf = self.fit_nmf(data, dim=3)
+            data_transformation = self.project_nmf(nmf, data)
             self.scatter_plot(data_transformation, labels)
 
         return data_transformation

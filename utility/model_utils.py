@@ -3,11 +3,11 @@ Author: Ramin Anushiravani
 Date: April 12th/23
 Model Evaluation Helper
 '''
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve, roc_auc_score, plot_confusion_matrix, f1_score
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve, roc_auc_score, f1_score
 import numpy as np
 from sklearn import preprocessing
-from utils.data_utils import DataUtil
-from matplotlib.pylab import plt
+from .data_utils import DataUtil
+import matplotlib.pyplot as plt
 from IPython.display import clear_output
 
 
@@ -17,24 +17,29 @@ class ModelUtil(DataUtil):
     '''
 
     def __init__(self, verbose=0):
+        super().__init__()
         self.hyperparameter_search = {}
         self.verbose = verbose
 
     def cross_validation(self, clf, X, y, num_folds=5):
         '''
-        Perform cross validation on a Sklearn model
+        Performs time-ordered cross-validation on a sklearn model. Each fold
+        normalizes the validation data with the scaler fitted on the training
+        fold, then records the training and validation accuracy.
+
         Args:
-            clf: sklearn model
-            X: data
-            y: labels
-            num_folds : number of folds
-            normaliza: normalizes data if set to 1, set to zero if data is already normalized
-            valid: if set to 0 it will return the normalization model as a third argument to use offline
+            clf: sklearn model with fit/score/predict_proba methods.
+            X: data matrix of shape (num_samples, num_features).
+            y: label vector of shape (num_samples,).
+            num_folds: number of cross-validation folds.
+
+        Returns:
+            Tuple (best training accuracy, mean validation accuracy),
+            each rounded to 3 decimals.
         '''
 
         valid_scores = []
         train_scores = []
-        valid_probabitlies = []
         Gen = self.gen_data(X, y, num_folds)
         try:
             while True:
@@ -50,35 +55,29 @@ class ModelUtil(DataUtil):
                 valid_scores.append(
                     clf.score(
                         validation_data,
-                        validation_label))  # validation sore
-                valid_probabitlies.append(clf.predict_proba(
-                    validation_data))  # validation probablities
+                        validation_label))  # validation score
 
         except StopIteration:
             done = 1
 
         if self.verbose:
-            print(
-                "training score",
-                '%0.4F' %
-                round(
-                    np.max(train_scores),
-                    3),
-                "validation score",
-                '%0.4F' %
-                round(
-                    np.mean(valid_scores),
-                    3))
+            print("training score %.4f validation score %.4f" % (
+                round(np.max(train_scores), 3),
+                round(np.mean(valid_scores), 3)))
 
         return round(np.max(train_scores), 3), round(np.mean(valid_scores), 3)
 
     def find_best_hyperparameters(self, model_name):
         '''
-        Looks through the hyperparameters used to train the model and returns the parameters that had the highest validation accuracy
+        Returns the hyperparameters that achieved the highest validation
+        accuracy for a model, from everything stored so far.
+
         Args:
-            model_name
+            model_name: name of the model to look up (e.g. "RF").
+                If empty, searches across all stored models.
+
         Returns:
-            A list of dictionary, containing best hyperparameters from the config of this model
+            The parameter dictionary with the best validation score.
         '''
         if model_name != '':
             hyper_search = {}
@@ -102,7 +101,12 @@ class ModelUtil(DataUtil):
 
     def store_params(self, param, valid_score):
         '''
-        Stores the parameters of the model with its corresponding validation score in a variable for book keeping
+        Stores a model's hyperparameters alongside its validation score for
+        later lookup by find_best_hyperparameters.
+
+        Args:
+            param: parameter dictionary.
+            valid_score: validation accuracy achieved with those parameters.
         '''
         if valid_score in self.hyperparameter_search.keys():
             self.hyperparameter_search[valid_score].append(param)
@@ -111,10 +115,15 @@ class ModelUtil(DataUtil):
 
     def get_roc(self, predictions, ground_truth):
         '''
+        Computes ROC curve values for binary predictions.
+
         Args:
-            predictions  : probablities of class 1
-            ground_truth : Test data labels
-        Returns values needed for an ROC curve
+            predictions: predicted probabilities of class 1.
+            ground_truth: test data labels.
+
+        Returns:
+            Tuple (fpr, tpr, auc, thresholds) with the false/true positive
+            rates, the area under the curve, and the decision thresholds.
         '''
         fpr, tpr, thr = roc_curve(ground_truth, predictions)
         auc = roc_auc_score(ground_truth, predictions)
@@ -122,11 +131,14 @@ class ModelUtil(DataUtil):
 
     def plot_cm_roc(self, prediction_prob, ground_truth, name=''):
         '''
-        plots Confusion matrix and ROC curve
+        Plots a confusion matrix and an ROC curve side by side, and prints
+        the F1 score, ROC-AUC, and the threshold with the best G-mean.
+
         Args:
-            prediction_prob  : probablities of class 1
-            ground_truth : Test data labels
-            name: title to use for fiugres
+            prediction_prob: predicted probabilities of class 1 (or a 2-D
+                array of class probabilities).
+            ground_truth: test data labels.
+            name: title to use for the figures.
         '''
         _, axs = plt.subplots(1, 2, figsize=(15, 5), dpi=100)
 
@@ -160,10 +172,14 @@ class ModelUtil(DataUtil):
 
     def real_time_test(self, model, test_datas, test_labels, thr):
         '''
-        helper function for visualizing model in real-time ish
-        model with a predict method 0 or 1
-        test_datas is normalized
-        test_labels is ground truth labels
+        Steps through test samples one at a time, plotting each normalized
+        sample colored by whether the model's prediction matches the label.
+
+        Args:
+            model: keras model with a predict method.
+            test_datas: normalized test samples.
+            test_labels: ground truth labels.
+            thr: decision threshold on the predicted probability.
         '''
         idx = 0
         for data, label in zip(test_datas, test_labels):

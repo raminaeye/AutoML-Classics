@@ -8,7 +8,8 @@ Model configurations
 def config(m_name):
     '''
     Args:
-        m_name: string, name of the model for which you want to get the list of hyperparameters for
+        m_name: string, name of the model for which you want to get the list of hyperparameters for.
+            One of "logistic regression", "SVM", "RF", "Perceptron", "FFNN".
 
     Returns:
         params: a list of dictionaries containing m_name hyperparameters
@@ -16,11 +17,13 @@ def config(m_name):
     More:
         a few selected hyperparameters for different models
         Helpful for figuring our which model might be its best version by evaluating it on cross validation set
+
+    Raises:
+        ValueError: if m_name is not a known model name.
     '''
+    params = []
 
     if m_name == "logistic regression":
-        
-        params = []
         params.append({"Model": m_name,
                        'Feature': 'raw',
                        'C': 0.9,
@@ -112,8 +115,6 @@ def config(m_name):
 
 
     if m_name == 'SVM':
-        
-        params = []
         params.append({"Model": m_name, 'Feature': 'pca',
                       'num_feat': 32, 'C': 0.8})
         params.append({"Model": m_name, 'Feature': 'pca',
@@ -136,8 +137,6 @@ def config(m_name):
                       'num_feat': 0, 'C': 0.9})
 
     if m_name == "RF":
-        
-        params = []
         params.append({"Model": m_name, 'Feature': 'pca',
                       'num_feat': 32, 'depth': 9})
         params.append({"Model": m_name, 'Feature': 'pca',
@@ -162,13 +161,11 @@ def config(m_name):
                       'num_feat': 0, 'depth': 21})
 
     if m_name == 'Perceptron':
-        
-        params = []
 
         params.append({"Model": m_name,
                        'Feature': 'pca',
                        'num_feat': 128,
-                       'hidden_layer': (1024),
+                       'hidden_layer': (1024,),
                        'alpha': 0.2,
                        'lr': 0.05,
                        'activation': 'relu'})
@@ -176,7 +173,7 @@ def config(m_name):
         params.append({"Model": m_name,
                        'Feature': 'pca',
                        'num_feat': 64,
-                       'hidden_layer': (512),
+                       'hidden_layer': (512,),
                        'alpha': 0.2,
                        'lr': 0.05,
                        'activation': 'relu'})
@@ -184,7 +181,7 @@ def config(m_name):
         params.append({"Model": m_name,
                        'Feature': 'pca',
                        'num_feat': 128,
-                       'hidden_layer': (512),
+                       'hidden_layer': (512,),
                        'alpha': 0.2,
                        'lr': 0.05,
                        'activation': 'relu'})
@@ -213,7 +210,7 @@ def config(m_name):
         params.append({"Model": m_name,
                        'Feature': 'raw',
                        'num_feat': 0,
-                       'hidden_layer': (1024),
+                       'hidden_layer': (1024,),
                        'alpha': 0.2,
                        'lr': 0.05,
                        'activation': 'relu'})
@@ -221,7 +218,7 @@ def config(m_name):
         params.append({"Model": m_name,
                        'Feature': 'raw',
                        'num_feat': 0,
-                       'hidden_layer': (512),
+                       'hidden_layer': (512,),
                        'alpha': 0.2,
                        'lr': 0.05,
                        'activation': 'relu'})
@@ -242,8 +239,6 @@ def config(m_name):
             64, 32, 8), 'alpha': 0.2, 'lr': 0.05, 'activation': 'relu'})
 
     if m_name == 'FFNN':
-        
-        params = []
         params.append({"Model": m_name, 'Feature': 'raw', 'num_feat': 0,
                       'model_num': 1, 'lr': 0.0001, 'batch_size': 32})
         params.append({"Model": m_name, 'Feature': 'raw', 'num_feat': 0,
@@ -310,5 +305,10 @@ def config(m_name):
                       'model_num': 4, 'lr': 0.001, 'batch_size': 64})
         params.append({"Model": m_name, 'Feature': 'eng', 'num_feat': 64,
                       'model_num': 5, 'lr': 0.001, 'batch_size': 64})
+
+    if not params:
+        raise ValueError(
+            "Unknown model name: {!r}. Expected one of: "
+            "\"logistic regression\", \"SVM\", \"RF\", \"Perceptron\", \"FFNN\".".format(m_name))
 
     return params
